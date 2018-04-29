@@ -32,6 +32,11 @@ print('Model loaded. Check http://127.0.0.1:5000/')
 
 ###########################################################################
 #Extracting image features first
+from keras.applications.vgg16 import VGG16
+from keras.models import Model
+from keras.preprocessing.image import load_img
+from keras.preprocessing.image import img_to_array
+from keras.applications.vgg16 import preprocess_input
 def ImageFeature_Extractor(ImageName): 
     #Re-structuring the VGG model as per requirements
     model_=VGG16(weights="imagenet")  #Loading the model
