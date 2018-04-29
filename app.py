@@ -5,6 +5,7 @@ import os
 import glob
 import re
 import numpy as np
+from pickle import load
 
 # Keras
 from keras.applications.imagenet_utils import preprocess_input, decode_predictions
@@ -20,42 +21,70 @@ from gevent.wsgi import WSGIServer
 app = Flask(__name__)
 
 # Model saved with Keras model.save()
-MODEL_PATH = 'models/your_model.h5'
+Model_path = 'models/best_model_weights.h5'
+Tokenizer_path= 'models/tokenizer.pkl'
 
-# Load your trained model
-# model = load_model(MODEL_PATH)
-# model._make_predict_function()          # Necessary
-# print('Model loaded. Start serving...')
+# Load your trained model and tokenizer
+model = load_model(Model_path)
+tokenizer=load(open(Tokenizer_path,'rb'))
 
-# You can also use pretrained model from Keras
-# Check https://keras.io/applications/
-from keras.applications.resnet50 import ResNet50
-model = ResNet50(weights='imagenet')
 print('Model loaded. Check http://127.0.0.1:5000/')
 
+###########################################################################
+#Extracting image features first
+def ImageFeature_Extractor(ImageName): 
+    #Re-structuring the VGG model as per requirements
+    model_=VGG16(weights="imagenet")  #Loading the model
+    model_.layers.pop()  #Restructing model (retain penultimate FCC-4096)
+    model_=Model(inputs=model_.inputs, outputs=model_.layers[-1].output)
+
+    #Extracting features from image (jpg) using restructured model   
+    image=load_img(ImageName,target_size=(224,224)) #loading img aptly
+    image=img_to_array(image)   #converting PIL image to array
+    image=image.reshape((1,image.shape[0],image.shape[1],image.shape[2]))  
+    image=preprocess_input(image)   # preprocessing of img for VGG
+    image_feature=model_.predict(image,verbose=0)   #getting img features
+
+    return image_feature
+
+#Mapping an integer prediction back to a word
+#Note: Using the same tokeniser used for train data
+def intID_to_word(integer, tokenizer):
+    for word, index in tokenizer.word_index.items():
+        if index==integer:
+            return word
+    return None
+
+#Generating a desc for an image using trained model
+from numpy import argmax
+from keras.preprocessing.sequence import pad_sequences
+def generate_desc(model, tokenizer, image, max_length):
+    in_text='startseq'   #seeding the generation process
+    for i in range(max_length):
+        seq=tokenizer.texts_to_sequences([in_text])[0] #encoding txt2int
+        seq=pad_sequences([seq], maxlen=max_length) #padding seq
+        pred=model.predict([image, seq], verbose=0) #predict next word
+        pred=argmax(pred)   #prob to integer ID conversion
+        word=intID_to_word(pred, tokenizer) #intID to word mapping
+        if word is None:
+            break   #stop if cant map word
+        in_text += ' ' + word  #append as input to generate next word
+        if word=='endseq':
+            break   #stop if end of seq
+    return in_text  
+#########################################################################  
 
 def model_predict(img_path, model):
-    img = image.load_img(img_path, target_size=(224, 224))
-
-    # Preprocessing the image
-    x = image.img_to_array(img)
-    # x = np.true_divide(x, 255)
-    x = np.expand_dims(x, axis=0)
-
-    # Be careful how your trained model deals with the input
-    # otherwise, it won't make correct prediction!
-    x = preprocess_input(x, mode='caffe')
-
-    preds = model.predict(x)
-    return preds
-
-
+    img_feat=ImageFeature_Extractor(img_path) #Image Features extracted
+    max_length=33
+    caption=generate_desc(model, tokenizer, img_feat, max_length)
+    return caption
+  
 @app.route('/', methods=['GET'])
 def index():
-    # Main page
+    # Main page template
     return render_template('index.html')
-
-
+  
 @app.route('/predict', methods=['GET', 'POST'])
 def upload():
     if request.method == 'POST':
@@ -67,17 +96,12 @@ def upload():
         file_path = os.path.join(
             basepath, 'uploads', secure_filename(f.filename))
         f.save(file_path)
-
-        # Make prediction
-        preds = model_predict(file_path, model)
-
-        # Process your result for human
-        # pred_class = preds.argmax(axis=-1)            # Simple argmax
-        pred_class = decode_predictions(preds, top=1)   # ImageNet Decode
-        result = str(pred_class[0][0][1])               # Convert to string
-        return result
+        
+        #captioning
+        caption=model_predict(file_path, model)
+        return caption
     return None
-
+    
 
 if __name__ == '__main__':
     # app.run(port=5002, debug=True)
