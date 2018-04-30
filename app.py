@@ -84,7 +84,18 @@ def model_predict(img_path, model):
     max_length=33
     caption=generate_desc(model, tokenizer, img_feat, max_length)
     return caption
-  
+
+def Cap_first_word(string_in): #Formating result output
+      tokens=string_in.split()
+      tokens_1=tokens[1:len(tokens)-1]
+      tokens_2=" ".join(tokens_1)
+      string_out=tokens_2.capitalize()
+      return string_out
+
+    caption_=Cap_first_word(caption)
+    return caption_
+    
+    
 @app.route('/', methods=['GET'])
 def index():
     # Main page template
